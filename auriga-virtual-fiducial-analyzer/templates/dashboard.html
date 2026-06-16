@@ -1,0 +1,175 @@
+{% extends "base.html" %}
+{% block title %}Analysis Results — Auriga VF Analyzer{% endblock %}
+
+{% block content %}
+
+<!-- Header -->
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+  <div>
+    <h2 class="fw-bold mb-0" style="color:#1a2340">Analysis Results</h2>
+    <small class="text-muted">Session: <code>{{ session_id }}</code></small>
+  </div>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('download_file', session_id=session_id, filename='analysis_results.csv') }}"
+       class="btn btn-outline-primary btn-sm">
+      <i class="bi bi-filetype-csv me-1"></i>Download CSV
+    </a>
+    <a href="{{ url_for('download_file', session_id=session_id, filename='virtual_fiducial_analysis_report.pdf') }}"
+       class="btn btn-primary btn-sm">
+      <i class="bi bi-file-earmark-pdf me-1"></i>Download PDF Report
+    </a>
+  </div>
+</div>
+
+<!-- Warnings -->
+{% if warnings %}
+<div class="alert alert-warning rounded-3 mb-4">
+  <i class="bi bi-exclamation-triangle-fill me-2"></i>
+  <strong>{{ warnings|length }} warning(s)</strong>
+  <ul class="mb-0 mt-1">
+    {% for w in warnings %}<li>{{ w }}</li>{% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+<!-- Overview stat cards -->
+<div class="row g-3 mb-4">
+  <div class="col-6 col-md-3">
+    <div class="card stat-card p-3 text-center">
+      <div class="display-5">{{ stats.total }}</div>
+      <div class="text-muted small mt-1">Images uploaded</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card stat-card p-3 text-center">
+      <div class="display-5">{{ stats.detected }}</div>
+      <div class="text-muted small mt-1">Markers detected</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card stat-card p-3 text-center">
+      <div class="display-5">{{ stats.det_rate }}%</div>
+      <div class="text-muted small mt-1">Detection rate</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card stat-card p-3 text-center">
+      <div class="display-5 {% if stats.failed > 0 %}text-warning{% endif %}">{{ stats.failed }}</div>
+      <div class="text-muted small mt-1">Failed detections</div>
+    </div>
+  </div>
+</div>
+
+<!-- Distribution overview -->
+<div class="row g-3 mb-4">
+  <div class="col-md-6">
+    <div class="card p-4 h-100">
+      <h6 class="fw-semibold mb-3"><i class="bi bi-rulers me-1"></i>Distance Distribution</h6>
+      {% for dist, count in stats.distances.items() %}
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <span class="text-muted small">{{ dist }} m</span>
+        <div class="flex-grow-1 mx-3">
+          <div class="progress" style="height:8px">
+            <div class="progress-bar" style="width:{{ (count / stats.total * 100)|round }}%;background:var(--auriga-blue)"></div>
+          </div>
+        </div>
+        <span class="badge bg-light text-dark">{{ count }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+  <div class="col-md-6">
+    <div class="card p-4 h-100">
+      <h6 class="fw-semibold mb-3"><i class="bi bi-compass me-1"></i>Orientation Distribution</h6>
+      {% for ori, count in stats.orientations.items() %}
+      <div class="d-flex justify-content-between align-items-center mb-2">
+        <span class="text-muted small">{{ ori }}</span>
+        <div class="flex-grow-1 mx-3">
+          <div class="progress" style="height:8px">
+            <div class="progress-bar" style="width:{{ (count / stats.total * 100)|round }}%;background:var(--auriga-accent)"></div>
+          </div>
+        </div>
+        <span class="badge bg-light text-dark">{{ count }}</span>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+<!-- Regression metrics -->
+{% if regressions %}
+<div class="card mb-4 p-4">
+  <h5 class="fw-semibold mb-3"><i class="bi bi-graph-up-arrow me-1"></i>Regression Analysis</h5>
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0">
+      <thead class="table-dark">
+        <tr>
+          <th>Metric</th><th>R²</th><th>RMSE</th><th>MAE</th><th>Samples</th><th>Interpretation</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% set labels = {"markerWidthPx": "Marker Width", "markerHeightPx": "Marker Height", "markerAreaPx": "Marker Area"} %}
+        {% for col, m in regressions.items() %}
+        <tr>
+          <td class="fw-semibold">{{ labels.get(col, col) }}</td>
+          <td>
+            <span class="badge {% if m.r2 >= 0.95 %}bg-success{% elif m.r2 >= 0.80 %}bg-warning text-dark{% else %}bg-danger{% endif %}">
+              {{ m.r2 }}
+            </span>
+          </td>
+          <td>{{ m.rmse }}</td>
+          <td>{{ m.mae }}</td>
+          <td>{{ m.n }}</td>
+          <td><small class="text-muted">{{ m.interp }}</small></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<!-- Plots -->
+<div class="card mb-4 p-4">
+  <h5 class="fw-semibold mb-4"><i class="bi bi-bar-chart-line me-1"></i>Visualisations</h5>
+  <div class="row g-4">
+    {% set plot_labels = {
+      "dist_width":  "Distance vs Marker Width",
+      "dist_height": "Distance vs Marker Height",
+      "dist_area":   "Distance vs Marker Area",
+      "orientation": "Orientation Robustness",
+      "detection_rate": "Detection Success Rate",
+      "distance_dist":  "Capture Distance Distribution"
+    } %}
+    {% for key, fname in plots.items() %}
+    <div class="col-md-6">
+      <p class="fw-semibold small mb-2">{{ plot_labels.get(key, key) }}</p>
+      <img src="{{ url_for('serve_export', session_id=session_id, filename=fname) }}"
+           class="img-fluid rounded border" alt="{{ plot_labels.get(key, key) }}">
+      <div class="mt-1">
+        <a href="{{ url_for('download_file', session_id=session_id, filename=fname) }}"
+           class="text-decoration-none small">
+          <i class="bi bi-download me-1"></i>Download PNG
+        </a>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+
+<!-- Export buttons (bottom) -->
+<div class="d-flex gap-3 justify-content-end mt-2 flex-wrap">
+  <a href="{{ url_for('download_file', session_id=session_id, filename='analysis_results.csv') }}"
+     class="btn btn-outline-primary">
+    <i class="bi bi-filetype-csv me-1"></i>Download analysis_results.csv
+  </a>
+  <a href="{{ url_for('download_file', session_id=session_id, filename='virtual_fiducial_analysis_report.pdf') }}"
+     class="btn btn-primary">
+    <i class="bi bi-file-earmark-pdf me-1"></i>Download PDF Report
+  </a>
+  <a href="/" class="btn btn-outline-secondary">
+    <i class="bi bi-arrow-repeat me-1"></i>New Analysis
+  </a>
+</div>
+
+{% endblock %}

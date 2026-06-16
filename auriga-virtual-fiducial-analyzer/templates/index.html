@@ -1,0 +1,81 @@
+{% extends "base.html" %}
+{% block title %}Upload Dataset — Auriga VF Analyzer{% endblock %}
+
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-7">
+
+    <!-- Hero -->
+    <div class="text-center mb-4">
+      <h1 class="fw-bold mb-1" style="color:#1a2340">Virtual Fiducial Hypothesis</h1>
+      <p class="text-muted mb-0">Upload a calibration image set and its metadata to run the full geometric validation pipeline.</p>
+    </div>
+
+    <!-- Errors -->
+    {% if errors %}
+    <div class="alert alert-danger rounded-3" role="alert">
+      <i class="bi bi-exclamation-triangle-fill me-2"></i>
+      <strong>Upload error</strong>
+      <ul class="mb-0 mt-1">
+        {% for e in errors %}<li>{{ e }}</li>{% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
+    <!-- Upload form -->
+    <div class="card p-4">
+      <form method="POST" action="/analyze" enctype="multipart/form-data" id="uploadForm">
+
+        <div class="mb-4">
+          <label class="form-label fw-semibold">
+            <i class="bi bi-file-zip me-1" style="color:var(--auriga-blue)"></i>
+            Calibration Image Archive <span class="text-danger">*</span>
+          </label>
+          <input class="form-control" type="file" name="zip_file" accept=".zip" required>
+          <div class="form-text">ZIP file containing .jpg / .jpeg / .png calibration images.</div>
+        </div>
+
+        <div class="mb-4">
+          <label class="form-label fw-semibold">
+            <i class="bi bi-table me-1" style="color:var(--auriga-blue)"></i>
+            Metadata CSV <span class="text-danger">*</span>
+          </label>
+          <input class="form-control" type="file" name="csv_file" accept=".csv" required>
+          <div class="form-text">
+            Required columns: <code>filename, distanceMeters, orientation, cameraHeightCm, deviceName</code>
+          </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary w-100 py-2 fw-semibold" id="analyzeBtn">
+          <i class="bi bi-play-circle me-2"></i>Run Analysis
+        </button>
+
+      </form>
+
+      <!-- Progress overlay -->
+      <div id="progress" class="text-center mt-4 d-none">
+        <div class="spinner-border" style="color:var(--auriga-blue)" role="status"></div>
+        <p class="mt-2 text-muted">Detecting markers and computing regression metrics…</p>
+      </div>
+    </div>
+
+    <!-- CSV format reference -->
+    <div class="card mt-4 p-4">
+      <h6 class="fw-semibold mb-3"><i class="bi bi-info-circle me-1"></i>Expected CSV format</h6>
+      <pre class="bg-light rounded p-3 mb-0" style="font-size:.82rem">filename,objectName,distanceMeters,cameraHeightCm,deviceName,orientation,notes,capturedAt,sourceType
+image001.jpg,aruco,0.5,50,Camera-1,Center,note text,2026-06-16T08:00:00Z,webcam
+image002.jpg,aruco,1.0,50,Camera-1,Left,,2026-06-16T08:05:00Z,webcam</pre>
+    </div>
+
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.getElementById("uploadForm").addEventListener("submit", function() {
+  document.getElementById("analyzeBtn").disabled = true;
+  document.getElementById("progress").classList.remove("d-none");
+});
+</script>
+{% endblock %}
