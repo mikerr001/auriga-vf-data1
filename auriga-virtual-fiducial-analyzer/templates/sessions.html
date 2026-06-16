@@ -1,0 +1,178 @@
+{% extends "base.html" %}
+
+{% block title %}Compare Sessions — Auriga VF Analyzer{% endblock %}
+
+{% block head %}
+<style>
+  .verdict-GO        { background:#e6f4ea; color:#2e7d32; }
+  .verdict-NO-GO     { background:#fce8e6; color:#c62828; }
+  .verdict-UNCERTAIN { background:#fff8e1; color:#e65100; }
+  .verdict-badge {
+    display: inline-block;
+    padding: .3em .75em;
+    border-radius: 50px;
+    font-size: .82rem;
+    font-weight: 600;
+  }
+  .label-cell { min-width: 160px; }
+  .edit-label-btn { cursor: pointer; opacity: .55; }
+  .edit-label-btn:hover { opacity: 1; }
+  .metric-value { font-variant-numeric: tabular-nums; }
+  thead th { white-space: nowrap; }
+  .session-link { font-family: monospace; font-size: .82rem; color: #6c757d; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center mb-4 gap-3">
+  <h1 class="h3 mb-0"><i class="bi bi-table me-2" style="color:var(--auriga-blue)"></i>Session Comparison</h1>
+  <span class="badge bg-secondary">{{ sessions | length }} session{{ 's' if sessions | length != 1 }}</span>
+</div>
+
+{% if sessions %}
+<div class="card">
+  <div class="card-header bg-white d-flex align-items-center justify-content-between">
+    <span><i class="bi bi-bar-chart-line me-2 text-primary"></i>Phase 3 LUT Metrics — All Sessions</span>
+    <small class="text-muted">Click a session ID to view its results &bull; Click <i class="bi bi-pencil"></i> to add a label</small>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-hover align-middle mb-0" id="sessions-table">
+      <thead class="table-light">
+        <tr>
+          <th>Session</th>
+          <th class="label-cell">Label</th>
+          <th class="text-end">Valid&nbsp;/&nbsp;Total</th>
+          <th class="text-end">R²</th>
+          <th class="text-end">MAE&nbsp;(m)</th>
+          <th class="text-end">RMSE&nbsp;(m)</th>
+          <th class="text-end">MAPE&nbsp;(%)</th>
+          <th class="text-center">Verdict</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in sessions %}
+        <tr data-session-id="{{ s.session_id }}">
+          <td>
+            <a class="fw-semibold text-decoration-none" href="{{ url_for('predict', session_id=s.session_id) }}">
+              {{ s.session_id[:12] }}&hellip;
+            </a>
+          </td>
+          <td class="label-cell">
+            <span class="label-display text-muted fst-italic" style="{{ 'display:none' if s.label else '' }}">
+              {% if s.label %}{{ s.label }}{% else %}&mdash;{% endif %}
+            </span>
+            <span class="label-text {% if not s.label %}text-muted fst-italic{% endif %}">
+              {% if s.label %}{{ s.label }}{% else %}&mdash;{% endif %}
+            </span>
+            <input type="text" class="form-control form-control-sm label-input d-none"
+                   value="{{ s.label }}" placeholder="Add label…" maxlength="80">
+            <i class="bi bi-pencil ms-1 edit-label-btn" title="Edit label"></i>
+          </td>
+          <td class="text-end metric-value">
+            {% if s.n_valid is not none %}
+              {{ s.n_valid }}&nbsp;/&nbsp;{{ s.n_total }}
+            {% else %}&mdash;{% endif %}
+          </td>
+          <td class="text-end metric-value">
+            {% if s.r2 is not none %}{{ "%.4f" | format(s.r2) }}{% else %}&mdash;{% endif %}
+          </td>
+          <td class="text-end metric-value">
+            {% if s.mae is not none %}{{ "%.4f" | format(s.mae) }}{% else %}&mdash;{% endif %}
+          </td>
+          <td class="text-end metric-value">
+            {% if s.rmse is not none %}{{ "%.4f" | format(s.rmse) }}{% else %}&mdash;{% endif %}
+          </td>
+          <td class="text-end metric-value">
+            {% if s.mape is not none %}{{ "%.2f" | format(s.mape) }}{% else %}&mdash;{% endif %}
+          </td>
+          <td class="text-center">
+            {% if s.verdict %}
+              {% set vc = s.verdict | upper | replace(' ', '-') %}
+              <span class="verdict-badge verdict-{{ vc }}">{{ s.verdict }}</span>
+            {% else %}
+              <span class="text-muted">&mdash;</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+{% else %}
+<div class="card">
+  <div class="card-body text-center py-5">
+    <i class="bi bi-inbox display-4 text-secondary mb-3 d-block"></i>
+    <p class="text-muted mb-3">No completed sessions found yet.</p>
+    <a href="/" class="btn btn-primary"><i class="bi bi-upload me-1"></i>Run an Analysis</a>
+  </div>
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.querySelectorAll('[data-session-id]').forEach(row => {
+  const sessionId = row.dataset.sessionId;
+  const labelText  = row.querySelector('.label-text');
+  const labelInput = row.querySelector('.label-input');
+  const editBtn    = row.querySelector('.edit-label-btn');
+
+  function enterEdit() {
+    labelText.classList.add('d-none');
+    labelInput.classList.remove('d-none');
+    labelInput.focus();
+    labelInput.select();
+    editBtn.classList.replace('bi-pencil', 'bi-check-lg');
+    editBtn.title = 'Save label';
+  }
+
+  function saveLabel() {
+    const newLabel = labelInput.value.trim();
+    fetch(`/sessions/${sessionId}/label`, {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({label: newLabel}),
+    })
+    .then(r => r.json())
+    .then(() => {
+      labelText.textContent = newLabel || '—';
+      if (newLabel) {
+        labelText.classList.remove('text-muted', 'fst-italic');
+      } else {
+        labelText.classList.add('text-muted', 'fst-italic');
+      }
+      labelText.classList.remove('d-none');
+      labelInput.classList.add('d-none');
+      editBtn.classList.replace('bi-check-lg', 'bi-pencil');
+      editBtn.title = 'Edit label';
+    })
+    .catch(() => {
+      labelText.classList.remove('d-none');
+      labelInput.classList.add('d-none');
+      editBtn.classList.replace('bi-check-lg', 'bi-pencil');
+      editBtn.title = 'Edit label';
+    });
+  }
+
+  editBtn.addEventListener('click', () => {
+    if (labelInput.classList.contains('d-none')) {
+      enterEdit();
+    } else {
+      saveLabel();
+    }
+  });
+
+  labelInput.addEventListener('keydown', e => {
+    if (e.key === 'Enter') saveLabel();
+    if (e.key === 'Escape') {
+      labelText.classList.remove('d-none');
+      labelInput.classList.add('d-none');
+      editBtn.classList.replace('bi-check-lg', 'bi-pencil');
+      editBtn.title = 'Edit label';
+    }
+  });
+});
+</script>
+{% endblock %}

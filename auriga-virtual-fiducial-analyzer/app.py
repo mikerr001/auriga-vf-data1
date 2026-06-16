@@ -17,7 +17,7 @@ import uuid
 from pathlib import Path
 
 from flask import (Flask, render_template, request, send_from_directory,
-                   redirect, url_for, Response)
+                   redirect, url_for, Response, jsonify)
 from werkzeug.utils import secure_filename
 
 from analysis.pipeline import PipelineError, run_pipeline
@@ -545,6 +545,66 @@ def lut_report(session_id: str):
         as_attachment=True,
         mimetype="application/pdf",
     )
+
+
+# ---------------------------------------------------------------- Sessions comparison
+
+def _load_session_label(session_dir: Path) -> str:
+    label_path = session_dir / "session_label.json"
+    if label_path.exists():
+        try:
+            with open(label_path) as f:
+                return json.load(f).get("label", "")
+        except Exception:
+            return ""
+    return ""
+
+
+def _save_session_label(session_dir: Path, label: str) -> None:
+    with open(session_dir / "session_label.json", "w") as f:
+        json.dump({"label": label}, f)
+
+
+@app.route("/sessions")
+def sessions():
+    entries = []
+    if TEMP_DIR.exists():
+        for session_dir in sorted(TEMP_DIR.iterdir()):
+            if not session_dir.is_dir():
+                continue
+            cache_path = session_dir / "phase3_cache.json"
+            if not cache_path.exists():
+                continue
+            try:
+                with open(cache_path) as f:
+                    cache = json.load(f)
+            except Exception:
+                continue
+            metrics = cache.get("metrics") or {}
+            recommendation = cache.get("recommendation") or {}
+            entries.append({
+                "session_id": session_dir.name,
+                "label":      _load_session_label(session_dir),
+                "n_valid":    cache.get("n_valid"),
+                "n_total":    cache.get("n_total"),
+                "r2":         metrics.get("r2"),
+                "mae":        metrics.get("mae"),
+                "rmse":       metrics.get("rmse"),
+                "mape":       metrics.get("mape"),
+                "verdict":    recommendation.get("verdict"),
+            })
+    return render_template("sessions.html", sessions=entries)
+
+
+@app.route("/sessions/<session_id>/label", methods=["POST"])
+def set_session_label(session_id: str):
+    safe_id     = secure_filename(session_id)
+    session_dir = TEMP_DIR / safe_id
+    if not session_dir.is_dir():
+        return jsonify({"error": "Session not found"}), 404
+    label = (request.json or {}).get("label", "").strip()
+    _save_session_label(session_dir, label)
+    return jsonify({"ok": True, "label": label})
 
 
 @app.errorhandler(413)
