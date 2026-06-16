@@ -1,9 +1,11 @@
-modules = ["python-3.11"]
+modules = ["python-3.12", "web"]
 [agent]
 expertMode = true
+stack = "BEST_EFFORT_FALLBACK"
 
 [nix]
 channel = "stable-25_05"
+packages = ["cairo", "ffmpeg-full", "freetype", "ghostscript", "glibcLocales", "gobject-introspection", "gtk3", "lcms2", "libimagequant", "libjpeg", "libtiff", "libwebp", "libxcrypt", "openjpeg", "pkg-config", "qhull", "tcl", "tk", "xsimd", "zlib"]
 
 [workflows]
 runButton = "Project"
@@ -15,10 +17,10 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "workflow.run"
-args = "Auriga VF Analyzer"
+args = "Start application"
 
 [[workflows.workflow]]
-name = "Auriga VF Analyzer"
+name = "Start application"
 author = "agent"
 
 [[workflows.workflow.tasks]]
