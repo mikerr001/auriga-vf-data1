@@ -472,6 +472,159 @@ def predict(session_id: str):
     )
 
 
+@app.route("/predict-live/<session_id>", methods=["GET", "POST"])
+def predict_live(session_id: str):
+    import base64
+    import io
+
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import pandas as pd
+
+    from analysis.lut import build_lut, LUTError
+    from analysis.prediction import _predict_distance_from_width
+
+    safe_id     = secure_filename(session_id)
+    session_dir = TEMP_DIR / safe_id
+    export_dir  = session_dir / "exports"
+
+    try:
+        df = _load_analysis_df(session_dir)
+    except FileNotFoundError as e:
+        return render_template("error.html", code=404, message=str(e)), 404
+
+    quality_flags = _load_quality_flags(session_dir)
+    if not quality_flags:
+        return render_template(
+            "error.html", code=400,
+            message="No quality flags found. Please complete the review step first."
+        ), 400
+
+    cache = _load_phase3_cache(session_dir)
+    cv    = cache.get("cv") or {}
+
+    # Rebuild the LUT model (cheap — just refitting the sklearn pipeline)
+    try:
+        lut_result = build_lut(df, quality_flags, export_dir)
+    except LUTError as e:
+        return render_template("error.html", code=500, message=str(e)), 500
+
+    model = lut_result.model
+
+    # Derive distance range from training data for axis limits
+    valid_distances = df[
+        df["filename"].isin({k for k, v in quality_flags.items() if v == "VALID"})
+        & (df["detectionSuccess"] == True)
+        & df["distanceMeters"].notna()
+        & (df["distanceMeters"] > 0)
+    ]["distanceMeters"]
+
+    d_min = float(valid_distances.min()) if not valid_distances.empty else 0.01
+    d_max = float(valid_distances.max()) if not valid_distances.empty else 100.0
+
+    result    = None
+    error_msg = None
+
+    if request.method == "POST":
+        raw = request.form.get("marker_width_px", "").strip()
+        try:
+            marker_width_px = float(raw)
+            if marker_width_px <= 0:
+                raise ValueError("Must be positive")
+        except ValueError:
+            error_msg = "Please enter a valid positive number for marker width."
+        else:
+            predicted_dist = _predict_distance_from_width(
+                model, marker_width_px,
+                distance_min=max(0.001, d_min * 0.5),
+                distance_max=d_max * 2.0,
+            )
+
+            mean_mae  = cv.get("mean_mae")
+            mean_rmse = cv.get("mean_rmse")
+
+            lower_bound = (predicted_dist - mean_mae)  if mean_mae  is not None else None
+            upper_bound = (predicted_dist + mean_mae)  if mean_mae  is not None else None
+            rmse_lower  = (predicted_dist - mean_rmse) if mean_rmse is not None else None
+            rmse_upper  = (predicted_dist + mean_rmse) if mean_rmse is not None else None
+
+            # Generate inline curve plot with query point highlighted
+            plot_b64 = None
+            try:
+                x_curve = np.linspace(d_min, d_max, 300)
+                y_curve = model.predict(x_curve.reshape(-1, 1))
+
+                fig, ax = plt.subplots(figsize=(8, 5))
+                ax.plot(x_curve, y_curve, "--", color="#4A90D9", linewidth=2, label="Fitted curve")
+
+                # Scatter training data
+                detected = df[
+                    (df["detectionSuccess"] == True)
+                    & df["markerWidthPx"].notna()
+                    & df["distanceMeters"].notna()
+                ]
+                if not detected.empty:
+                    ax.scatter(
+                        detected["distanceMeters"], detected["markerWidthPx"],
+                        color="#4A90D9", s=35, alpha=0.4, label="Training samples"
+                    )
+
+                # Highlight the query point
+                ax.scatter(
+                    [predicted_dist], [marker_width_px],
+                    color="#E74C3C", s=120, zorder=5, label=f"Query ({marker_width_px:.1f} px)"
+                )
+
+                # Draw crosshairs at query point
+                ax.axhline(marker_width_px, color="#E74C3C", linewidth=0.8, alpha=0.5, linestyle=":")
+                ax.axvline(predicted_dist, color="#E74C3C", linewidth=0.8, alpha=0.5, linestyle=":")
+
+                # Shade MAE error band around predicted distance
+                if mean_mae is not None:
+                    ax.axvspan(
+                        max(0, lower_bound), upper_bound,
+                        alpha=0.15, color="#E74C3C", label=f"±MAE ({mean_mae:.4f} m)"
+                    )
+
+                ax.set_xlabel("Distance (m)", fontsize=11)
+                ax.set_ylabel("Marker Width (px)", fontsize=11)
+                ax.set_title("Fitted Calibration Curve — Live Query", fontsize=12)
+                ax.legend(fontsize=9)
+                ax.grid(True, alpha=0.3)
+
+                buf = io.BytesIO()
+                fig.savefig(buf, format="png", dpi=120, bbox_inches="tight")
+                plt.close(fig)
+                buf.seek(0)
+                plot_b64 = base64.b64encode(buf.read()).decode("ascii")
+            except Exception:
+                logger.exception("Live prediction plot generation failed")
+
+            result = {
+                "marker_width_px": marker_width_px,
+                "predicted_dist":  round(predicted_dist, 4),
+                "mean_mae":        round(mean_mae,  4) if mean_mae  is not None else None,
+                "mean_rmse":       round(mean_rmse, 4) if mean_rmse is not None else None,
+                "lower_mae":       round(max(0, lower_bound), 4) if lower_bound is not None else None,
+                "upper_mae":       round(upper_bound, 4)         if upper_bound is not None else None,
+                "lower_rmse":      round(max(0, rmse_lower), 4)  if rmse_lower  is not None else None,
+                "upper_rmse":      round(rmse_upper, 4)          if rmse_upper  is not None else None,
+                "plot_b64":        plot_b64,
+            }
+
+    return render_template(
+        "predict_live.html",
+        session_id=session_id,
+        result=result,
+        error_msg=error_msg,
+        cv=cv,
+        d_min=round(d_min, 3),
+        d_max=round(d_max, 3),
+    )
+
+
 @app.route("/lut-report/<session_id>", methods=["GET"])
 def lut_report(session_id: str):
     import pandas as pd

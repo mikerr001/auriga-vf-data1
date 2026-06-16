@@ -1,0 +1,186 @@
+{% extends "base.html" %}
+{% block title %}Live Distance Prediction — Auriga VF Analyzer{% endblock %}
+
+{% block head %}
+<style>
+  .result-card      { border-radius: 14px; background: #fff; box-shadow: 0 2px 16px rgba(0,0,0,.08); }
+  .dist-value       { font-size: 3rem; font-weight: 800; color: var(--auriga-blue); line-height: 1.1; }
+  .dist-unit        { font-size: 1.2rem; color: #6c757d; font-weight: 500; }
+  .bound-row        { display: flex; gap: 2rem; flex-wrap: wrap; }
+  .bound-item       { flex: 1; min-width: 140px; text-align: center; padding: .8rem 1rem;
+                      border-radius: 10px; background: #f4f6fb; }
+  .bound-label      { font-size: .78rem; text-transform: uppercase; letter-spacing: .06em;
+                      color: #8a93a6; font-weight: 600; }
+  .bound-val        { font-size: 1.1rem; font-weight: 700; color: #1a2340; }
+  .input-card       { border-radius: 14px; background: #fff; box-shadow: 0 2px 16px rgba(0,0,0,.08); }
+  .cv-pill          { display: inline-block; padding: .25em .75em; border-radius: 50px;
+                      font-size: .8rem; font-weight: 600; }
+  .cv-pill-mae      { background: #e3f0fb; color: #1565c0; }
+  .cv-pill-rmse     { background: #fff3e0; color: #bf360c; }
+  .range-hint       { font-size: .82rem; color: #8a93a6; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- Header -->
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+  <div>
+    <h2 class="fw-bold mb-0" style="color:#1a2340">
+      <i class="bi bi-broadcast me-2" style="color:var(--auriga-blue)"></i>Live Distance Prediction
+    </h2>
+    <small class="text-muted">Session: <code>{{ session_id }}</code></small>
+  </div>
+  <a href="{{ url_for('predict', session_id=session_id) }}" class="btn btn-outline-secondary btn-sm">
+    <i class="bi bi-arrow-left me-1"></i>Back to Results
+  </a>
+</div>
+
+<!-- CV error bounds info strip -->
+{% if cv and cv.mean_mae is not none %}
+<div class="alert alert-info d-flex align-items-center gap-3 mb-4 rounded-3 py-2 px-3" style="font-size:.9rem">
+  <i class="bi bi-info-circle-fill fs-5"></i>
+  <span>
+    Error bounds are derived from {{ cv.k }}-fold cross-validation on {{ cv.n_samples }} samples:
+    <span class="cv-pill cv-pill-mae ms-2">MAE {{ "%.4f"|format(cv.mean_mae) }} ± {{ "%.4f"|format(cv.std_mae) }} m</span>
+    <span class="cv-pill cv-pill-rmse ms-1">RMSE {{ "%.4f"|format(cv.mean_rmse) }} ± {{ "%.4f"|format(cv.std_rmse) }} m</span>
+  </span>
+</div>
+{% endif %}
+
+<!-- Input form -->
+<div class="input-card p-4 mb-4">
+  <h5 class="fw-semibold mb-3">
+    <i class="bi bi-input-cursor-text me-1" style="color:var(--auriga-blue)"></i>Enter Marker Width
+  </h5>
+
+  {% if error_msg %}
+  <div class="alert alert-danger rounded-3 py-2 mb-3">
+    <i class="bi bi-exclamation-triangle-fill me-1"></i>{{ error_msg }}
+  </div>
+  {% endif %}
+
+  <form method="POST" action="{{ url_for('predict_live', session_id=session_id) }}" autocomplete="off">
+    <div class="row g-3 align-items-end">
+      <div class="col-12 col-md-5">
+        <label for="marker_width_px" class="form-label fw-semibold">
+          Marker Width (px)
+        </label>
+        <div class="input-group">
+          <input
+            type="number"
+            id="marker_width_px"
+            name="marker_width_px"
+            class="form-control form-control-lg"
+            placeholder="e.g. 42.5"
+            min="0.1"
+            step="any"
+            value="{{ result.marker_width_px if result else '' }}"
+            required
+            autofocus
+          >
+          <span class="input-group-text">px</span>
+        </div>
+        <div class="range-hint mt-1">
+          Calibrated distance range: {{ d_min }} – {{ d_max }} m
+        </div>
+      </div>
+      <div class="col-12 col-md-3">
+        <button type="submit" class="btn btn-primary btn-lg w-100">
+          <i class="bi bi-lightning-fill me-1"></i>Predict Distance
+        </button>
+      </div>
+      {% if result %}
+      <div class="col-12 col-md-3">
+        <a href="{{ url_for('predict_live', session_id=session_id) }}"
+           class="btn btn-outline-secondary btn-lg w-100">
+          <i class="bi bi-arrow-counterclockwise me-1"></i>Clear
+        </a>
+      </div>
+      {% endif %}
+    </div>
+  </form>
+</div>
+
+<!-- Result panel -->
+{% if result %}
+<div class="result-card p-4 mb-4">
+  <h5 class="fw-semibold mb-4">
+    <i class="bi bi-bullseye me-1" style="color:var(--auriga-blue)"></i>
+    Prediction for <strong>{{ result.marker_width_px }} px</strong>
+  </h5>
+
+  <!-- Predicted distance hero -->
+  <div class="text-center py-3 mb-4">
+    <div class="dist-value">{{ "%.4f"|format(result.predicted_dist) }}</div>
+    <div class="dist-unit mt-1">metres</div>
+  </div>
+
+  <!-- Error bounds -->
+  {% if result.mean_mae is not none or result.mean_rmse is not none %}
+  <div class="bound-row mb-2">
+    {% if result.mean_mae is not none %}
+    <div class="bound-item">
+      <div class="bound-label">Lower bound (MAE)</div>
+      <div class="bound-val">{{ "%.4f"|format(result.lower_mae) }} m</div>
+    </div>
+    <div class="bound-item" style="background:#e3f0fb">
+      <div class="bound-label">±MAE</div>
+      <div class="bound-val" style="color:#1565c0">{{ "%.4f"|format(result.mean_mae) }} m</div>
+    </div>
+    <div class="bound-item">
+      <div class="bound-label">Upper bound (MAE)</div>
+      <div class="bound-val">{{ "%.4f"|format(result.upper_mae) }} m</div>
+    </div>
+    {% endif %}
+    {% if result.mean_rmse is not none %}
+    <div class="bound-item">
+      <div class="bound-label">Lower bound (RMSE)</div>
+      <div class="bound-val">{{ "%.4f"|format(result.lower_rmse) }} m</div>
+    </div>
+    <div class="bound-item" style="background:#fff3e0">
+      <div class="bound-label">±RMSE</div>
+      <div class="bound-val" style="color:#bf360c">{{ "%.4f"|format(result.mean_rmse) }} m</div>
+    </div>
+    <div class="bound-item">
+      <div class="bound-label">Upper bound (RMSE)</div>
+      <div class="bound-val">{{ "%.4f"|format(result.upper_rmse) }} m</div>
+    </div>
+    {% endif %}
+  </div>
+  <p class="text-muted small mt-2 mb-0">
+    <i class="bi bi-info-circle me-1"></i>
+    Bounds are ± the cross-validated mean error — they represent typical model uncertainty, not a formal confidence interval.
+  </p>
+  {% else %}
+  <p class="text-muted small">
+    <i class="bi bi-exclamation-circle me-1"></i>
+    No cross-validation data available for this session — error bounds cannot be computed.
+  </p>
+  {% endif %}
+</div>
+
+<!-- Fitted curve plot -->
+{% if result.plot_b64 %}
+<div class="card p-4 mb-4">
+  <h5 class="fw-semibold mb-3">
+    <i class="bi bi-graph-up me-1"></i>Calibration Curve — Query Point Highlighted
+  </h5>
+  <img src="data:image/png;base64,{{ result.plot_b64 }}"
+       class="img-fluid rounded border" alt="Fitted calibration curve with query point">
+</div>
+{% endif %}
+
+{% endif %}
+
+<!-- Navigation -->
+<div class="d-flex gap-3 justify-content-between flex-wrap mt-2">
+  <a href="{{ url_for('predict', session_id=session_id) }}" class="btn btn-outline-secondary">
+    <i class="bi bi-arrow-left me-1"></i>Prediction Results
+  </a>
+  <a href="{{ url_for('review', session_id=session_id) }}" class="btn btn-outline-secondary">
+    <i class="bi bi-flag me-1"></i>Re-review Quality Flags
+  </a>
+</div>
+
+{% endblock %}
