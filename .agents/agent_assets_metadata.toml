@@ -1,0 +1,20 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "O8R2elPZkNK0D5sLq5BFw"
+uri = "file://auriga-vf-engine/notebooks/sample_grid.png"
+type = "image"
+title = "Sample Images Grid"
+
+[[outputs]]
+id = "9EhGLTq5M9rBKUHQHs6t_"
+uri = "file://auriga-vf-engine/notebooks/capture_distribution.png"
+type = "image"
+title = "Capture Distribution"
+
+[[outputs]]
+id = "wGjXkSzz9NT5iCTQBK6JU"
+uri = "file://auriga-vf-engine/notebooks/coverage_heatmap.png"
+type = "image"
+title = "Coverage Heatmap — Orientation × Distance"
