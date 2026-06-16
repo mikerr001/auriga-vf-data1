@@ -16,7 +16,8 @@ import threading
 import uuid
 from pathlib import Path
 
-from flask import (Flask, render_template, request, send_from_directory)
+from flask import (Flask, render_template, request, send_from_directory,
+                   redirect, url_for, Response)
 from werkzeug.utils import secure_filename
 
 from analysis.pipeline import PipelineError, run_pipeline
@@ -254,6 +255,296 @@ def download_file(session_id: str, filename: str):
     safe_id    = secure_filename(session_id)
     export_dir = TEMP_DIR / safe_id / "exports"
     return send_from_directory(str(export_dir), filename, as_attachment=True)
+
+
+# ---------------------------------------------------------------- Phase 3 helpers
+
+def _load_analysis_df(session_dir: Path) -> "pd.DataFrame":
+    import pandas as pd
+    csv_path = session_dir / "exports" / "analysis_results.csv"
+    if not csv_path.exists():
+        raise FileNotFoundError(f"analysis_results.csv not found in {session_dir / 'exports'}")
+    return pd.read_csv(csv_path)
+
+
+def _load_quality_flags(session_dir: Path) -> dict:
+    flags_path = session_dir / "quality_flags.json"
+    if flags_path.exists():
+        with open(flags_path) as f:
+            return json.load(f)
+    return {}
+
+
+def _save_quality_flags(session_dir: Path, flags: dict) -> None:
+    with open(session_dir / "quality_flags.json", "w") as f:
+        json.dump(flags, f)
+
+
+def _load_phase3_cache(session_dir: Path) -> dict:
+    cache_path = session_dir / "phase3_cache.json"
+    if cache_path.exists():
+        with open(cache_path) as f:
+            return json.load(f)
+    return {}
+
+
+def _save_phase3_cache(session_dir: Path, data: dict) -> None:
+    with open(session_dir / "phase3_cache.json", "w") as f:
+        json.dump(data, f, default=str)
+
+
+# ---------------------------------------------------------------- Phase 3 routes
+
+@app.route("/review/<session_id>", methods=["GET"])
+def review(session_id: str):
+    import pandas as pd
+    safe_id     = secure_filename(session_id)
+    session_dir = TEMP_DIR / safe_id
+
+    try:
+        df = _load_analysis_df(session_dir)
+    except FileNotFoundError as e:
+        return render_template("error.html", code=404, message=str(e)), 404
+
+    existing_flags = _load_quality_flags(session_dir)
+    samples = []
+    for _, row in df.iterrows():
+        fname = str(row.get("filename", ""))
+        samples.append({
+            "filename":       fname,
+            "distanceMeters": row.get("distanceMeters"),
+            "orientation":    row.get("orientation"),
+            "markerWidthPx":  row.get("markerWidthPx"),
+            "detectionSuccess": bool(row.get("detectionSuccess", False)),
+            "flag": existing_flags.get(fname, "VALID"),
+        })
+
+    return render_template("review.html",
+                           session_id=session_id,
+                           samples=samples)
+
+
+@app.route("/review/<session_id>", methods=["POST"])
+def review_submit(session_id: str):
+    import pandas as pd
+    from analysis.lut import build_lut, LUTError
+    from analysis.prediction import run_prediction, PredictionError
+    from analysis.cross_validation import run_cross_validation, CrossValidationError
+    from analysis.sensitivity import run_sensitivity_analysis, SensitivityError
+    from analysis.recommendation import generate_recommendation
+    from analysis.lut_plots import generate_lut_plots
+
+    safe_id     = secure_filename(session_id)
+    session_dir = TEMP_DIR / safe_id
+    export_dir  = session_dir / "exports"
+
+    try:
+        df = _load_analysis_df(session_dir)
+    except FileNotFoundError as e:
+        return render_template("error.html", code=404, message=str(e)), 404
+
+    quality_flags = {}
+    for fname in df["filename"].astype(str):
+        flag = request.form.get(f"flag_{fname}", "VALID")
+        if flag not in ("VALID", "QUESTIONABLE", "INVALID"):
+            flag = "VALID"
+        quality_flags[fname] = flag
+
+    _save_quality_flags(session_dir, quality_flags)
+
+    errors = []
+
+    try:
+        lut_result = build_lut(df, quality_flags, export_dir)
+    except LUTError as e:
+        return render_template(
+            "review.html",
+            session_id=session_id,
+            samples=[{
+                "filename": r["filename"], "distanceMeters": r.get("distanceMeters"),
+                "orientation": r.get("orientation"), "markerWidthPx": r.get("markerWidthPx"),
+                "detectionSuccess": bool(r.get("detectionSuccess", False)),
+                "flag": quality_flags.get(r["filename"], "VALID"),
+            } for r in df.to_dict("records")],
+            error=str(e),
+        )
+
+    try:
+        pred_result = run_prediction(df, quality_flags, lut_result.model, export_dir)
+    except PredictionError as e:
+        errors.append(f"Prediction error: {e}")
+        pred_result = None
+
+    cv_result = None
+    try:
+        cv_result = run_cross_validation(df, quality_flags)
+    except CrossValidationError as e:
+        errors.append(f"Cross-validation skipped: {e}")
+
+    sensitivity_result = None
+    try:
+        sensitivity_result = run_sensitivity_analysis(df, quality_flags, lut_result.model)
+    except SensitivityError as e:
+        errors.append(f"Sensitivity analysis skipped: {e}")
+
+    recommendation = None
+    if pred_result:
+        results_df = pred_result.results_df
+        recommendation = generate_recommendation(pred_result.metrics, results_df)
+
+    lut_plots = {}
+    if pred_result:
+        lut_plots = generate_lut_plots(pred_result.results_df, df, lut_result.model, export_dir)
+
+    cache_data = {
+        "quality_flags": quality_flags,
+        "metrics": {
+            "mae":       pred_result.metrics.mae if pred_result else None,
+            "rmse":      pred_result.metrics.rmse if pred_result else None,
+            "mape":      pred_result.metrics.mape if pred_result else None,
+            "r2":        pred_result.metrics.r2 if pred_result else None,
+            "n_samples": pred_result.metrics.n_samples if pred_result else None,
+        },
+        "cv": {
+            "k":         cv_result.k if cv_result else None,
+            "mean_mae":  cv_result.mean_mae if cv_result else None,
+            "std_mae":   cv_result.std_mae if cv_result else None,
+            "mean_rmse": cv_result.mean_rmse if cv_result else None,
+            "std_rmse":  cv_result.std_rmse if cv_result else None,
+            "mean_r2":   cv_result.mean_r2 if cv_result else None,
+            "std_r2":    cv_result.std_r2 if cv_result else None,
+            "n_samples": cv_result.n_samples if cv_result else None,
+            "folds": [
+                {"fold": f.fold, "n_train": f.n_train, "n_test": f.n_test,
+                 "mae": f.mae, "rmse": f.rmse, "r2": f.r2}
+                for f in cv_result.folds
+            ] if cv_result else [],
+        },
+        "sensitivity": {
+            "baseline_mae":  sensitivity_result.baseline_mae if sensitivity_result else None,
+            "baseline_rmse": sensitivity_result.baseline_rmse if sensitivity_result else None,
+            "n_samples":     sensitivity_result.n_samples if sensitivity_result else None,
+            "perturbations": [
+                {"perturbation_pct": p.perturbation_pct, "direction": p.direction,
+                 "mae": p.mae, "rmse": p.rmse, "mean_abs_delta": p.mean_abs_delta}
+                for p in sensitivity_result.perturbations
+            ] if sensitivity_result else [],
+        },
+        "recommendation": {
+            "verdict":   recommendation.verdict if recommendation else None,
+            "rationale": recommendation.rationale if recommendation else [],
+            "r2":        recommendation.r2 if recommendation else None,
+            "mae":       recommendation.mae if recommendation else None,
+            "rmse":      recommendation.rmse if recommendation else None,
+            "mape":      recommendation.mape if recommendation else None,
+            "orientation_anova_p": recommendation.orientation_anova_p if recommendation else None,
+        },
+        "lut_plots": lut_plots,
+        "errors": errors,
+        "n_valid": lut_result.n_valid,
+        "n_total": lut_result.n_total,
+    }
+    _save_phase3_cache(session_dir, cache_data)
+
+    return redirect(url_for("predict", session_id=session_id))
+
+
+@app.route("/predict/<session_id>", methods=["GET"])
+def predict(session_id: str):
+    safe_id     = secure_filename(session_id)
+    session_dir = TEMP_DIR / safe_id
+
+    cache = _load_phase3_cache(session_dir)
+    if not cache:
+        return redirect(url_for("review", session_id=session_id))
+
+    return render_template(
+        "prediction_results.html",
+        session_id=session_id,
+        metrics=cache.get("metrics", {}),
+        cv=cache.get("cv", {}),
+        sensitivity=cache.get("sensitivity", {}),
+        recommendation=cache.get("recommendation", {}),
+        lut_plots=cache.get("lut_plots", {}),
+        errors=cache.get("errors", []),
+        n_valid=cache.get("n_valid", 0),
+        n_total=cache.get("n_total", 0),
+    )
+
+
+@app.route("/lut-report/<session_id>", methods=["GET"])
+def lut_report(session_id: str):
+    import pandas as pd
+    from analysis.lut import build_lut, LUTError
+    from analysis.prediction import run_prediction, PredictionError
+    from analysis.cross_validation import run_cross_validation, CrossValidationError
+    from analysis.sensitivity import run_sensitivity_analysis, SensitivityError
+    from analysis.recommendation import generate_recommendation
+    from analysis.lut_plots import generate_lut_plots
+    from analysis.lut_report import generate_lut_report
+
+    safe_id     = secure_filename(session_id)
+    session_dir = TEMP_DIR / safe_id
+    export_dir  = session_dir / "exports"
+
+    try:
+        df = _load_analysis_df(session_dir)
+    except FileNotFoundError as e:
+        return render_template("error.html", code=404, message=str(e)), 404
+
+    quality_flags = _load_quality_flags(session_dir)
+    if not quality_flags:
+        return render_template("error.html", code=404,
+                               message="No quality flags found. Please complete the review step first."), 404
+
+    cache = _load_phase3_cache(session_dir)
+    lut_plots = cache.get("lut_plots", {})
+
+    try:
+        lut_result = build_lut(df, quality_flags, export_dir)
+    except LUTError as e:
+        return render_template("error.html", code=500, message=str(e)), 500
+
+    try:
+        pred_result = run_prediction(df, quality_flags, lut_result.model, export_dir)
+    except PredictionError as e:
+        return render_template("error.html", code=500, message=str(e)), 500
+
+    cv_result = None
+    try:
+        cv_result = run_cross_validation(df, quality_flags)
+    except CrossValidationError:
+        pass
+
+    sensitivity_result = None
+    try:
+        sensitivity_result = run_sensitivity_analysis(df, quality_flags, lut_result.model)
+    except SensitivityError:
+        pass
+
+    recommendation = generate_recommendation(pred_result.metrics, pred_result.results_df)
+
+    if not lut_plots:
+        lut_plots = generate_lut_plots(pred_result.results_df, df, lut_result.model, export_dir)
+
+    report_path = generate_lut_report(
+        analysis_df=df,
+        results_df=pred_result.results_df,
+        quality_flags=quality_flags,
+        metrics=pred_result.metrics,
+        cv_result=cv_result,
+        sensitivity_result=sensitivity_result,
+        recommendation=recommendation,
+        lut_plots=lut_plots,
+        export_dir=export_dir,
+    )
+
+    return send_from_directory(
+        str(export_dir),
+        report_path.name,
+        as_attachment=True,
+        mimetype="application/pdf",
+    )
 
 
 @app.errorhandler(413)

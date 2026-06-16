@@ -1,0 +1,151 @@
+{% extends "base.html" %}
+{% block title %}Review Data Quality — Auriga VF Analyzer{% endblock %}
+
+{% block head %}
+<style>
+  .flag-valid       { background: #e6f4ea; color: #2e7d32; }
+  .flag-questionable{ background: #fff8e1; color: #e65100; }
+  .flag-invalid     { background: #fdecea; color: #c62828; }
+  .badge-detected   { background: #e6f4ea; color: #2e7d32; font-size:.78rem; padding:.3em .6em; border-radius:50px; }
+  .badge-failed     { background: #fdecea; color: #c62828; font-size:.78rem; padding:.3em .6em; border-radius:50px; }
+  .radio-group label { cursor: pointer; padding: .25em .7em; border-radius: 6px; font-size: .82rem; font-weight: 600; border: 1.5px solid transparent; transition: all .15s; }
+  .radio-group input[type=radio] { display: none; }
+  .radio-group input[value=VALID]:checked       + label { background:#2e7d32; color:#fff; border-color:#2e7d32; }
+  .radio-group input[value=QUESTIONABLE]:checked+ label { background:#e65100; color:#fff; border-color:#e65100; }
+  .radio-group input[value=INVALID]:checked     + label { background:#c62828; color:#fff; border-color:#c62828; }
+  .radio-group label:hover { opacity: .8; }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+  <div>
+    <h2 class="fw-bold mb-0" style="color:#1a2340">
+      <i class="bi bi-clipboard2-check me-2" style="color:var(--auriga-blue)"></i>Review Data Quality
+    </h2>
+    <small class="text-muted">Session: <code>{{ session_id }}</code></small>
+  </div>
+  <a href="{{ url_for('download_file', session_id=session_id, filename='analysis_results.csv') }}"
+     class="btn btn-outline-primary btn-sm">
+    <i class="bi bi-filetype-csv me-1"></i>Download CSV
+  </a>
+</div>
+
+<div class="alert mb-4 py-2 d-flex gap-2 align-items-start"
+     style="background:#eef4fd;border-left:4px solid var(--auriga-blue);color:#1a2340">
+  <i class="bi bi-info-circle-fill mt-1" style="color:var(--auriga-blue)"></i>
+  <span>
+    Mark each sample <strong>VALID</strong> (include in LUT), <strong>QUESTIONABLE</strong>
+    (exclude), or <strong>INVALID</strong> (exclude). Only <strong>VALID</strong> rows with
+    successful marker detection are used to build the calibration LUT.
+  </span>
+</div>
+
+{% if error %}
+<div class="alert alert-danger rounded-3 mb-4">
+  <i class="bi bi-exclamation-triangle-fill me-2"></i>{{ error }}
+</div>
+{% endif %}
+
+<form method="POST" action="{{ url_for('review_submit', session_id=session_id) }}">
+
+  <!-- Bulk actions -->
+  <div class="card mb-3 p-3 d-flex flex-row gap-2 align-items-center flex-wrap">
+    <span class="text-muted small fw-semibold me-2">Bulk flag:</span>
+    <button type="button" class="btn btn-sm btn-outline-success" onclick="bulkFlag('VALID')">
+      <i class="bi bi-check-circle me-1"></i>All Valid
+    </button>
+    <button type="button" class="btn btn-sm btn-outline-warning" onclick="bulkFlag('QUESTIONABLE')">
+      <i class="bi bi-question-circle me-1"></i>All Questionable
+    </button>
+    <button type="button" class="btn btn-sm btn-outline-danger" onclick="bulkFlag('INVALID')">
+      <i class="bi bi-x-circle me-1"></i>All Invalid
+    </button>
+    <span class="ms-auto text-muted small" id="valid-count-label"></span>
+  </div>
+
+  <div class="card mb-4">
+    <div class="table-responsive">
+      <table class="table table-hover align-middle mb-0">
+        <thead class="table-dark">
+          <tr>
+            <th>#</th>
+            <th>Filename</th>
+            <th>Distance (m)</th>
+            <th>Orientation</th>
+            <th>Width (px)</th>
+            <th>Detection</th>
+            <th>Quality Flag</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in samples %}
+          <tr id="row-{{ loop.index }}">
+            <td class="text-muted small">{{ loop.index }}</td>
+            <td class="fw-semibold small">{{ s.filename }}</td>
+            <td>{{ s.distanceMeters if s.distanceMeters is not none else '—' }}</td>
+            <td>{{ s.orientation if s.orientation else '—' }}</td>
+            <td>
+              {% if s.markerWidthPx is not none and s.markerWidthPx == s.markerWidthPx %}
+                {{ "%.1f"|format(s.markerWidthPx) }}
+              {% else %}—{% endif %}
+            </td>
+            <td>
+              {% if s.detectionSuccess %}
+                <span class="badge-detected"><i class="bi bi-check2 me-1"></i>OK</span>
+              {% else %}
+                <span class="badge-failed"><i class="bi bi-x me-1"></i>Failed</span>
+              {% endif %}
+            </td>
+            <td>
+              <div class="radio-group d-flex gap-1 flag-radio-group">
+                <input type="radio" name="flag_{{ s.filename }}"
+                       id="valid_{{ loop.index }}" value="VALID"
+                       {% if s.flag == 'VALID' %}checked{% endif %}
+                       onchange="updateCount()">
+                <label for="valid_{{ loop.index }}" class="text-success-emphasis border-success">Valid</label>
+
+                <input type="radio" name="flag_{{ s.filename }}"
+                       id="quest_{{ loop.index }}" value="QUESTIONABLE"
+                       {% if s.flag == 'QUESTIONABLE' %}checked{% endif %}
+                       onchange="updateCount()">
+                <label for="quest_{{ loop.index }}" class="text-warning-emphasis border-warning">?</label>
+
+                <input type="radio" name="flag_{{ s.filename }}"
+                       id="inv_{{ loop.index }}" value="INVALID"
+                       {% if s.flag == 'INVALID' %}checked{% endif %}
+                       onchange="updateCount()">
+                <label for="inv_{{ loop.index }}" class="text-danger-emphasis border-danger">Invalid</label>
+              </div>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="d-flex gap-3 justify-content-end flex-wrap">
+    <a href="{{ url_for('analyze') if false else '/' }}" class="btn btn-outline-secondary">
+      <i class="bi bi-arrow-left me-1"></i>Back
+    </a>
+    <button type="submit" class="btn btn-success btn-lg px-5">
+      <i class="bi bi-cpu me-2"></i>Generate LUT &amp; Run Predictions
+    </button>
+  </div>
+</form>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function bulkFlag(value) {
+  document.querySelectorAll('.flag-radio-group input[value="' + value + '"]').forEach(r => r.checked = true);
+  updateCount();
+}
+function updateCount() {
+  const count = document.querySelectorAll('.flag-radio-group input[value="VALID"]:checked').length;
+  document.getElementById('valid-count-label').textContent = count + ' marked VALID';
+}
+document.addEventListener('DOMContentLoaded', updateCount);
+</script>
+{% endblock %}

@@ -1,0 +1,228 @@
+{% extends "base.html" %}
+{% block title %}Prediction Results — Auriga VF Analyzer{% endblock %}
+
+{% block head %}
+<style>
+  .metric-card { border-radius: 12px; padding: 1.2rem 1.5rem; }
+  .metric-value { font-size: 2rem; font-weight: 700; color: var(--auriga-blue); }
+  .verdict-go   { background: #e6f4ea; border-left: 5px solid #2e7d32; color: #1b5e20; }
+  .verdict-nogo { background: #fdecea; border-left: 5px solid #c62828; color: #7f0000; }
+  .verdict-badge-go   { background: #2e7d32; color: #fff; font-size: 1.1rem; padding: .4em .9em; border-radius: 8px; }
+  .verdict-badge-nogo { background: #c62828; color: #fff; font-size: 1.1rem; padding: .4em .9em; border-radius: 8px; }
+  .r2-good   { color: #2e7d32; font-weight: 700; }
+  .r2-ok     { color: #e65100; font-weight: 700; }
+  .r2-bad    { color: #c62828; font-weight: 700; }
+</style>
+{% endblock %}
+
+{% block content %}
+
+<!-- Header -->
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+  <div>
+    <h2 class="fw-bold mb-0" style="color:#1a2340">
+      <i class="bi bi-graph-up-arrow me-2" style="color:var(--auriga-blue)"></i>Prediction Results
+    </h2>
+    <small class="text-muted">Session: <code>{{ session_id }}</code></small>
+  </div>
+  <div class="d-flex gap-2 flex-wrap">
+    <a href="{{ url_for('download_file', session_id=session_id, filename='prediction_results.csv') }}"
+       class="btn btn-outline-primary btn-sm">
+      <i class="bi bi-filetype-csv me-1"></i>Prediction CSV
+    </a>
+    <a href="{{ url_for('download_file', session_id=session_id, filename='virtual_fiducial_lut.csv') }}"
+       class="btn btn-outline-primary btn-sm">
+      <i class="bi bi-table me-1"></i>LUT CSV
+    </a>
+    <a href="{{ url_for('lut_report', session_id=session_id) }}"
+       class="btn btn-primary btn-sm">
+      <i class="bi bi-file-earmark-pdf me-1"></i>Generate Report
+    </a>
+  </div>
+</div>
+
+<!-- Errors / warnings -->
+{% if errors %}
+<div class="alert alert-warning rounded-3 mb-4">
+  <i class="bi bi-exclamation-triangle-fill me-2"></i>
+  <strong>{{ errors|length }} issue(s) during analysis:</strong>
+  <ul class="mb-0 mt-1">{% for e in errors %}<li>{{ e }}</li>{% endfor %}</ul>
+</div>
+{% endif %}
+
+<!-- Dataset badge -->
+<div class="mb-3 text-muted small">
+  <i class="bi bi-funnel me-1"></i>
+  Used <strong>{{ n_valid }}</strong> of <strong>{{ n_total }}</strong> samples (VALID rows with successful detection).
+</div>
+
+<!-- Accuracy metrics -->
+{% if metrics and metrics.r2 is not none %}
+<div class="row g-3 mb-4">
+  {% set r2_class = 'r2-good' if metrics.r2 >= 0.90 else ('r2-ok' if metrics.r2 >= 0.75 else 'r2-bad') %}
+  <div class="col-6 col-md-3">
+    <div class="card metric-card text-center">
+      <div class="metric-value {{ r2_class }}">{{ "%.4f"|format(metrics.r2) }}</div>
+      <div class="text-muted small mt-1">R²</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card metric-card text-center">
+      <div class="metric-value">{{ "%.4f"|format(metrics.mae) }}</div>
+      <div class="text-muted small mt-1">MAE (m)</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card metric-card text-center">
+      <div class="metric-value">{{ "%.4f"|format(metrics.rmse) }}</div>
+      <div class="text-muted small mt-1">RMSE (m)</div>
+    </div>
+  </div>
+  <div class="col-6 col-md-3">
+    <div class="card metric-card text-center">
+      <div class="metric-value">{{ "%.2f"|format(metrics.mape) }}%</div>
+      <div class="text-muted small mt-1">MAPE</div>
+    </div>
+  </div>
+</div>
+{% endif %}
+
+<!-- Plots -->
+{% if lut_plots %}
+<div class="card mb-4 p-4">
+  <h5 class="fw-semibold mb-4"><i class="bi bi-bar-chart-line me-1"></i>Visualisations</h5>
+  {% set plot_labels = {
+    "actual_vs_predicted":   "Actual vs Predicted Distance",
+    "error_distribution":    "Error Distribution",
+    "error_by_orientation":  "Prediction Error by Orientation",
+    "marker_width_distance": "Marker Width vs Distance"
+  } %}
+  <div class="row g-4">
+    {% for key, fname in lut_plots.items() %}
+    <div class="col-md-6">
+      <p class="fw-semibold small mb-2">{{ plot_labels.get(key, key) }}</p>
+      <img src="{{ url_for('serve_export', session_id=session_id, filename=fname) }}"
+           class="img-fluid rounded border" alt="{{ plot_labels.get(key, key) }}">
+      <div class="mt-1">
+        <a href="{{ url_for('download_file', session_id=session_id, filename=fname) }}"
+           class="text-decoration-none small">
+          <i class="bi bi-download me-1"></i>Download PNG
+        </a>
+      </div>
+    </div>
+    {% endfor %}
+  </div>
+</div>
+{% endif %}
+
+<!-- Cross-validation summary -->
+{% if cv and cv.k %}
+<div class="card mb-4 p-4">
+  <h5 class="fw-semibold mb-3"><i class="bi bi-arrow-repeat me-1"></i>Cross-Validation Summary</h5>
+  <p class="text-muted small mb-3">
+    {{ cv.k }}-fold cross-validation on {{ cv.n_samples }} VALID samples.
+    Mean MAE: <strong>{{ "%.4f"|format(cv.mean_mae) }} ± {{ "%.4f"|format(cv.std_mae) }} m</strong> &nbsp;|&nbsp;
+    Mean RMSE: <strong>{{ "%.4f"|format(cv.mean_rmse) }} ± {{ "%.4f"|format(cv.std_rmse) }} m</strong> &nbsp;|&nbsp;
+    Mean R²: <strong>{{ "%.4f"|format(cv.mean_r2) }} ± {{ "%.4f"|format(cv.std_r2) }}</strong>
+  </p>
+  <div class="table-responsive">
+    <table class="table table-sm table-hover align-middle mb-0">
+      <thead class="table-dark">
+        <tr><th>Fold</th><th>Train N</th><th>Test N</th><th>MAE</th><th>RMSE</th><th>R²</th></tr>
+      </thead>
+      <tbody>
+        {% for fold in cv.folds %}
+        <tr>
+          <td>{{ fold.fold }}</td>
+          <td>{{ fold.n_train }}</td>
+          <td>{{ fold.n_test }}</td>
+          <td>{{ "%.4f"|format(fold.mae) }}</td>
+          <td>{{ "%.4f"|format(fold.rmse) }}</td>
+          <td>{{ "%.4f"|format(fold.r2) }}</td>
+        </tr>
+        {% endfor %}
+        <tr class="table-secondary fw-semibold">
+          <td>Mean±Std</td>
+          <td>—</td>
+          <td>—</td>
+          <td>{{ "%.4f"|format(cv.mean_mae) }}±{{ "%.4f"|format(cv.std_mae) }}</td>
+          <td>{{ "%.4f"|format(cv.mean_rmse) }}±{{ "%.4f"|format(cv.std_rmse) }}</td>
+          <td>{{ "%.4f"|format(cv.mean_r2) }}±{{ "%.4f"|format(cv.std_r2) }}</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<!-- Sensitivity analysis -->
+{% if sensitivity and sensitivity.perturbations %}
+<div class="card mb-4 p-4">
+  <h5 class="fw-semibold mb-3"><i class="bi bi-activity me-1"></i>Sensitivity Analysis</h5>
+  <p class="text-muted small mb-3">
+    Baseline MAE: <strong>{{ "%.4f"|format(sensitivity.baseline_mae) }} m</strong> &nbsp;|&nbsp;
+    Baseline RMSE: <strong>{{ "%.4f"|format(sensitivity.baseline_rmse) }} m</strong>
+  </p>
+  <div class="table-responsive">
+    <table class="table table-sm table-hover align-middle mb-0">
+      <thead class="table-dark">
+        <tr><th>Perturbation</th><th>Direction</th><th>MAE (m)</th><th>RMSE (m)</th><th>Mean Δ Dist (m)</th></tr>
+      </thead>
+      <tbody>
+        {% for p in sensitivity.perturbations %}
+        <tr>
+          <td>{{ p.perturbation_pct }}%</td>
+          <td><span class="badge {% if p.direction == 'positive' %}bg-info text-dark{% else %}bg-secondary{% endif %}">{{ p.direction }}</span></td>
+          <td>{{ "%.4f"|format(p.mae) }}</td>
+          <td>{{ "%.4f"|format(p.rmse) }}</td>
+          <td>{{ "%.4f"|format(p.mean_abs_delta) }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+
+<!-- Recommendation Engine -->
+{% if recommendation and recommendation.verdict %}
+<div class="card mb-4 p-4 {% if recommendation.verdict == 'Go' %}verdict-go{% else %}verdict-nogo{% endif %}">
+  <div class="d-flex align-items-center gap-3 mb-3">
+    <h5 class="fw-semibold mb-0"><i class="bi bi-stars me-1"></i>Recommendation Engine</h5>
+    <span class="{% if recommendation.verdict == 'Go' %}verdict-badge-go{% else %}verdict-badge-nogo{% endif %}">
+      {% if recommendation.verdict == 'Go' %}
+        <i class="bi bi-check2-circle me-1"></i>Go
+      {% else %}
+        <i class="bi bi-x-circle me-1"></i>No-Go
+      {% endif %}
+    </span>
+  </div>
+  <ul class="mb-0">
+    {% for item in recommendation.rationale %}
+    <li class="mb-1 small">{{ item }}</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+<!-- Navigation -->
+<div class="d-flex gap-3 justify-content-between flex-wrap mt-2">
+  <a href="{{ url_for('review', session_id=session_id) }}" class="btn btn-outline-secondary">
+    <i class="bi bi-arrow-left me-1"></i>Re-review Quality Flags
+  </a>
+  <div class="d-flex gap-2 flex-wrap">
+    <a href="{{ url_for('download_file', session_id=session_id, filename='prediction_results.csv') }}"
+       class="btn btn-outline-primary">
+      <i class="bi bi-filetype-csv me-1"></i>Download Prediction CSV
+    </a>
+    <a href="{{ url_for('lut_report', session_id=session_id) }}"
+       class="btn btn-primary">
+      <i class="bi bi-file-earmark-pdf me-1"></i>Generate Full PDF Report
+    </a>
+    <a href="/" class="btn btn-outline-secondary">
+      <i class="bi bi-arrow-repeat me-1"></i>New Analysis
+    </a>
+  </div>
+</div>
+
+{% endblock %}

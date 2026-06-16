@@ -182,4 +182,13 @@
   </a>
 </div>
 
+<!-- Phase 3: Quality Review CTA -->
+<div class="mt-4 pt-3 border-top text-center">
+  <p class="text-muted mb-2 small">Ready to build a calibration LUT and predict distances?</p>
+  <a href="{{ url_for('review', session_id=session_id) }}"
+     class="btn btn-success btn-lg px-5">
+    <i class="bi bi-clipboard2-check me-2"></i>Review Data Quality &rarr;
+  </a>
+</div>
+
 {% endblock %}
