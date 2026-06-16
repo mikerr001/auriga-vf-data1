@@ -81,6 +81,52 @@
       </div>
     </div>
 
+    <!-- Recent sessions -->
+    {% if recent_sessions %}
+    <div class="card mt-4 p-4">
+      <div class="d-flex align-items-center justify-content-between mb-3">
+        <h6 class="fw-semibold mb-0">
+          <i class="bi bi-clock-history me-1" style="color:var(--auriga-blue)"></i>Recent Sessions
+        </h6>
+        <a href="{{ url_for('sessions') }}" class="btn btn-outline-secondary btn-sm">
+          <i class="bi bi-table me-1"></i>Compare all
+        </a>
+      </div>
+      <ul class="list-group list-group-flush">
+        {% for s in recent_sessions %}
+        <li class="list-group-item px-0 d-flex align-items-center justify-content-between gap-2">
+          <div>
+            <code class="small text-muted">{{ s.id[:12] }}&hellip;</code>
+            {% if s.phase == 3 %}
+              {% if s.verdict %}
+                {% set vc = s.verdict | upper | replace(' ', '-') %}
+                <span class="ms-2 badge
+                  {% if vc == 'GO' %}bg-success
+                  {% elif vc == 'NO-GO' %}bg-danger
+                  {% else %}bg-warning text-dark{% endif %}
+                  fw-semibold" style="font-size:.75rem">{{ s.verdict }}</span>
+              {% else %}
+                <span class="ms-2 badge bg-secondary fw-semibold" style="font-size:.75rem">Phase 3</span>
+              {% endif %}
+            {% else %}
+              <span class="ms-2 badge bg-light text-secondary border fw-semibold" style="font-size:.75rem">Phase {{ s.phase }}</span>
+            {% endif %}
+            {% if s.created_at %}
+            <span class="ms-2 text-muted small" title="{{ s.created_at }}">
+              {{ s.created_at[:10] }}
+            </span>
+            {% endif %}
+          </div>
+          <a href="{{ url_for('resume_session', session_id=s.id) }}"
+             class="btn btn-outline-primary btn-sm text-nowrap">
+            <i class="bi bi-arrow-clockwise me-1"></i>Resume
+          </a>
+        </li>
+        {% endfor %}
+      </ul>
+    </div>
+    {% endif %}
+
     <!-- CSV format reference -->
     <div class="card mt-4 p-4">
       <h6 class="fw-semibold mb-3"><i class="bi bi-info-circle me-1"></i>Expected CSV format</h6>

@@ -14,6 +14,7 @@ import os
 import shutil
 import threading
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 from flask import (Flask, render_template, request, send_from_directory,
@@ -37,8 +38,9 @@ FIXTURE_DIR = BASE_DIR / "static" / "fixtures"
 FIXTURE_ZIP = FIXTURE_DIR / "calibration_demo.zip"
 FIXTURE_CSV = FIXTURE_DIR / "calibration_demo.csv"
 
-DEMO_SESSION_DIR = TEMP_DIR / "demo-prebuilt"
-DEMO_CACHE_JSON  = DEMO_SESSION_DIR / "demo_cache.json"
+DEMO_SESSION_DIR   = TEMP_DIR / "demo-prebuilt"
+DEMO_CACHE_JSON    = DEMO_SESSION_DIR / "demo_cache.json"
+SESSIONS_INDEX_PATH = BASE_DIR / "sessions.json"
 
 for d in (UPLOAD_DIR, TEMP_DIR, EXPORTS_DIR):
     d.mkdir(exist_ok=True)
@@ -123,6 +125,55 @@ def _init_demo_cache() -> None:
 _init_demo_cache()
 
 
+# ---------------------------------------------------------- session index
+
+_sessions_lock = threading.Lock()
+
+
+def _load_sessions_index() -> list:
+    """Return the list of session metadata dicts from sessions.json."""
+    if not SESSIONS_INDEX_PATH.exists():
+        return []
+    try:
+        with open(SESSIONS_INDEX_PATH) as f:
+            data = json.load(f)
+        return data if isinstance(data, list) else []
+    except Exception as e:
+        logger.warning("Could not read sessions index: %s", e)
+        return []
+
+
+def _save_sessions_index(sessions: list) -> None:
+    with open(SESSIONS_INDEX_PATH, "w") as f:
+        json.dump(sessions, f, indent=2, default=str)
+
+
+def _upsert_session_index(session_id: str, **fields) -> None:
+    """Insert or update a session entry in sessions.json (thread-safe)."""
+    with _sessions_lock:
+        sessions = _load_sessions_index()
+        existing = next((s for s in sessions if s["id"] == session_id), None)
+        if existing is None:
+            entry = {"id": session_id, "created_at": None, "export_dir": None,
+                     "phase": 1, "verdict": None}
+            entry.update(fields)
+            sessions.append(entry)
+        else:
+            existing.update(fields)
+        _save_sessions_index(sessions)
+
+
+def _get_recent_sessions(n: int = 5) -> list:
+    """Return the n most-recently created sessions from the index."""
+    sessions = _load_sessions_index()
+    sessions_sorted = sorted(
+        sessions,
+        key=lambda s: s.get("created_at") or "",
+        reverse=True,
+    )
+    return sessions_sorted[:n]
+
+
 # ------------------------------------------------------------------ helpers
 
 def _allowed(filename: str, allowed: set) -> bool:
@@ -164,7 +215,8 @@ def _build_dashboard_context(result: dict) -> dict:
 def index():
     with _demo_lock:
         demo_ready = _demo_cache.get("ready", False)
-    return render_template("index.html", demo_ready=demo_ready)
+    recent = _get_recent_sessions(n=5)
+    return render_template("index.html", demo_ready=demo_ready, recent_sessions=recent)
 
 
 @app.route("/analyze", methods=["POST"])
@@ -204,6 +256,29 @@ def analyze():
         return render_template("index.html", errors=[f"Unexpected error: {e}"])
 
     ctx = _build_dashboard_context(result)
+
+    phase2_cache = {
+        "stats":       ctx["stats"],
+        "regressions": ctx["regressions"],
+        "plots":       result["plots"],
+        "warnings":    result["warnings"],
+    }
+    try:
+        with open(session_dir / "phase2_cache.json", "w") as f:
+            json.dump(phase2_cache, f, default=str)
+    except Exception:
+        logger.warning("Could not save phase2_cache for session %s", session_id)
+
+    export_dir = session_dir / "exports"
+    created_at = datetime.now(timezone.utc).isoformat()
+    _upsert_session_index(
+        session_id,
+        created_at=created_at,
+        export_dir=str(export_dir),
+        phase=2,
+        verdict=None,
+    )
+
     return render_template(
         "dashboard.html",
         session_id=session_id,
@@ -445,6 +520,9 @@ def review_submit(session_id: str):
         "n_total": lut_result.n_total,
     }
     _save_phase3_cache(session_dir, cache_data)
+
+    verdict = cache_data["recommendation"].get("verdict")
+    _upsert_session_index(session_id, phase=3, verdict=verdict)
 
     return redirect(url_for("predict", session_id=session_id))
 
@@ -698,6 +776,43 @@ def lut_report(session_id: str):
         as_attachment=True,
         mimetype="application/pdf",
     )
+
+
+# ---------------------------------------------------------------- Session resume
+
+@app.route("/session/<session_id>/resume")
+def resume_session(session_id: str):
+    """Rehydrate a previous session from its on-disk cache."""
+    safe_id     = secure_filename(session_id)
+    session_dir = TEMP_DIR / safe_id
+
+    if not session_dir.is_dir():
+        return render_template("error.html", code=404,
+                               message=f"Session '{safe_id}' not found on disk."), 404
+
+    phase3 = _load_phase3_cache(session_dir)
+    if phase3:
+        return redirect(url_for("predict", session_id=safe_id))
+
+    cache_path = session_dir / "phase2_cache.json"
+    if cache_path.exists():
+        try:
+            with open(cache_path) as f:
+                cache = json.load(f)
+            return render_template(
+                "dashboard.html",
+                session_id=safe_id,
+                stats=cache["stats"],
+                regressions=cache["regressions"],
+                plots=cache["plots"],
+                warnings=cache.get("warnings", []),
+                is_demo=False,
+            )
+        except Exception as e:
+            logger.warning("Could not load phase2_cache for session %s: %s", safe_id, e)
+
+    return render_template("error.html", code=404,
+                           message="Session data not found. The session may have been lost before the cache was saved."), 404
 
 
 # ---------------------------------------------------------------- Sessions comparison
