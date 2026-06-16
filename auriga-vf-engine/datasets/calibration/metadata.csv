@@ -1,0 +1,17 @@
+id,filename,objectName,distanceMeters,cameraHeightCm,deviceName,orientation,notes,capturedAt,sourceType
+8632591e-d9ee-4ff4-8326-f20d1ca6af06,8632591e-d9ee-4ff4-8326-f20d1ca6af06.jpg,aruco,1.5,50,Camera-1,Center,barely noticeable,2026-06-16T08:05:56.056Z,webcam
+a6d0ad14-ad5a-481f-b0be-fcb1e1ae82ea,a6d0ad14-ad5a-481f-b0be-fcb1e1ae82ea.jpg,aruco,1,50,Camera-1,Left,slightly more noticeable,2026-06-16T08:10:25.559Z,webcam
+d47f932d-706f-40e3-a86d-78c9a38f893b,d47f932d-706f-40e3-a86d-78c9a38f893b.jpg,aruco,1,50,Camera-1,Center,slightly more noticeable,2026-06-16T08:14:57.154Z,webcam
+f1e35e5b-305b-4679-b68d-26ae2966be6e,f1e35e5b-305b-4679-b68d-26ae2966be6e.jpg,aruco,1,50,Camera-1,Right,slightly more noticeable,2026-06-16T08:16:07.746Z,webcam
+47b89e24-9c9d-4455-a11e-3f18365bad7a,47b89e24-9c9d-4455-a11e-3f18365bad7a.jpg,aruco,1.5,50,Camera-1,Right,slightly more noticeable,2026-06-16T08:17:52.526Z,webcam
+f4cb4640-6618-4b40-834e-77acaee13dc2,f4cb4640-6618-4b40-834e-77acaee13dc2.jpg,aruco,1.5,50,Camera-1,Left,slightly more noticeable,2026-06-16T08:18:27.361Z,webcam
+3f809603-31ab-44d7-ba0d-72fa566cfdfd,3f809603-31ab-44d7-ba0d-72fa566cfdfd.jpg,aruco,0.5,50,Camera-1,Center,way more noticeable,2026-06-16T08:22:16.526Z,webcam
+f3445177-f0c7-49c5-a75c-1594f2e4e82f,f3445177-f0c7-49c5-a75c-1594f2e4e82f.jpg,aruco,0.5,50,Camera-1,Left,way more noticeable,2026-06-16T08:22:52.781Z,webcam
+d2a93e72-b3a1-4b1d-9754-f8e4230ef95c,d2a93e72-b3a1-4b1d-9754-f8e4230ef95c.jpg,aruco,0.5,50,Camera-1,Right,way more noticeable,2026-06-16T08:23:07.741Z,webcam
+b2454e78-033e-4f4d-a10e-5e0f85ea0e1a,b2454e78-033e-4f4d-a10e-5e0f85ea0e1a.jpg,aruco,0.5,100,Camera-1,Down,,2026-06-16T08:26:45.859Z,webcam
+067c5c70-089c-4743-962b-5721ca2c0c6d,067c5c70-089c-4743-962b-5721ca2c0c6d.jpg,aruco,1,100,Camera-1,Down,,2026-06-16T08:29:04.594Z,webcam
+633f7e67-c533-4ffb-9602-3e3c919bf9a7,633f7e67-c533-4ffb-9602-3e3c919bf9a7.jpg,aruco,1.5,100,Camera-1,Down,i like the pattern of the aruco markers,2026-06-16T08:32:03.742Z,webcam
+353d501a-a751-4f5c-987e-8ade2a892163,353d501a-a751-4f5c-987e-8ade2a892163.jpg,aruco,2,70,Camera-1,Center,the marker is still visible though.,2026-06-16T08:52:08.495Z,webcam
+dc937088-deef-4b6a-b6fb-8634df7896c0,dc937088-deef-4b6a-b6fb-8634df7896c0.jpg,aruco,2,70,Camera-1,Left,the marker is still visible though.,2026-06-16T08:52:50.903Z,webcam
+774691f1-989f-43af-9fb1-4982f45b1667,774691f1-989f-43af-9fb1-4982f45b1667.jpg,aruco,2,70,Camera-1,Right,the marker is still visible though.,2026-06-16T08:54:27.311Z,webcam
+e08b81d3-ee8a-4a54-a9f3-e9d244e391e2,e08b81d3-ee8a-4a54-a9f3-e9d244e391e2.jpg,aruco,2,70,Camera-1,Down,the marker is still visible though.,2026-06-16T08:55:03.958Z,webcam
