@@ -11,6 +11,28 @@
       <p class="text-muted mb-0">Upload a calibration image set and its metadata to run the full geometric validation pipeline.</p>
     </div>
 
+    <!-- Demo banner -->
+    <div class="card mb-4 p-3 d-flex flex-row align-items-center justify-content-between gap-3"
+         style="background:linear-gradient(135deg,#eef4fd,#f0f8f1);border-left:4px solid var(--auriga-blue)">
+      <div>
+        <div class="fw-semibold mb-1" style="color:#1a2340">
+          <i class="bi bi-stars me-1" style="color:var(--auriga-blue)"></i>Try the Auriga Calibration Dataset
+        </div>
+        <div class="text-muted small">
+          16 ArUco images · distances 0.5 – 2 m · 4 orientations · runs instantly, no upload needed.
+        </div>
+      </div>
+      {% if demo_ready %}
+      <a href="/demo" class="btn btn-primary btn-sm text-nowrap px-4 py-2 fw-semibold" id="demoBtn">
+        <i class="bi bi-lightning-charge-fill me-1"></i>Run Demo
+      </a>
+      {% else %}
+      <a href="/demo" class="btn btn-outline-secondary btn-sm text-nowrap px-4 py-2 fw-semibold disabled" aria-disabled="true">
+        <span class="spinner-border spinner-border-sm me-1"></span>Preparing…
+      </a>
+      {% endif %}
+    </div>
+
     <!-- Errors -->
     {% if errors %}
     <div class="alert alert-danger rounded-3" role="alert">
@@ -77,5 +99,13 @@ document.getElementById("uploadForm").addEventListener("submit", function() {
   document.getElementById("analyzeBtn").disabled = true;
   document.getElementById("progress").classList.remove("d-none");
 });
+
+var demoBtn = document.getElementById("demoBtn");
+if (demoBtn) {
+  demoBtn.addEventListener("click", function() {
+    this.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span>Running demo…';
+    this.classList.add("disabled");
+  });
+}
 </script>
 {% endblock %}
